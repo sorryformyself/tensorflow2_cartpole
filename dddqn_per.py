@@ -119,7 +119,6 @@ class DQNAgent:
         self.gamma = 0.9
         self.replay_start_size = 320
         self.experience_replay = SumTree(memory_size)
-        self.experience_replay_n = SumTree(memory_size)
         self.PER_e = 0.01 #epsilon -> pi = |delta| + epsilon transitions which have zero error also have chance to be selected
         self.PER_a = 0.6 #P(i) = p(i) ** a / total_priority ** a
         self.PER_b = 0.4
@@ -232,7 +231,7 @@ class DQNAgent:
             history = self.model.fit(buffer_state, y, batch_size=self.batch_size, epochs=64, verbose=0, sample_weight=batch_ISWeights)
             self.batch_update(batch_index, absolute_errors)
             return history
-            
+
     def acting(self,state):
         if self.render:
             env.render()
@@ -263,7 +262,7 @@ agent = DQNAgent()
 if agent.isTraining:
     scores_window = deque(maxlen=100)
     start = time.time()
-    for episode in range(episodes):
+    for episode in range(1, episodes+1):
         rewards = 0
         state = env.reset()
         state = np.array([state])
@@ -273,17 +272,15 @@ if agent.isTraining:
             rewards += reward
             next_state = next_state[None, :]
             reward = -10 if done else reward
-            
+
             agent.store((state,action,reward,next_state,done))
             state = next_state
             if done or rewards >= step_limit:
                 episode_rewards.append(rewards)
                 scores_window.append(rewards)
-                #max_average_reward = max(max_average_reward,average_reward)
-                max_reward = max(max_reward,rewards)
                 history = agent.training()
                 break
-        print('\rEpisode {}\tAverage Score: {:.2f}\tepsilon:{:.2f}\tbeta: {:.2f}'.format(episode, np.mean(scores_window), agent.epsilon, agent.PER_b), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f}\tepsilon:{:.2f}\tper_beta: {:.2f}'.format(episode, np.mean(scores_window), agent.epsilon, agent.PER_b), end="")
 
         if np.mean(scores_window)>195:
             print("\nproblem solved in {} episode with {:.2f} seconds".format(episode, time.time()-start))
@@ -292,54 +289,4 @@ if agent.isTraining:
             break
         if episode % 100 == 0:
             print("\nRunning for {:.2f} seconds".format(time.time()-start))
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(scores_window)))
     env.close()
-
-if agent.random:
-    episode_rewards = []
-    average_rewards = []
-    max_average_reward = 0
-    max_reward = 0
-    for episode in range(3000):
-        state = env.reset()
-        rewards = 0
-        while True:
-            env.render()
-            action = np.random.randint(action_size)
-            next_state, reward, done, _= env.step(action)
-            rewards += reward
-            state = next_state
-            if done or rewards >= step_limit:
-                episode_rewards.append(rewards)
-                average_reward = tf.reduce_mean(episode_rewards).numpy()
-                average_rewards.append(average_reward)
-                max_reward = max(max_reward,rewards)
-                print(template.format(episode,rewards,max_reward,average_reward,"Not used"))
-                break
-    agent.draw(episode,episode_rewards,average_rewards,"./random_cartpole.png")
-
-if agent.play:
-    episode_rewards = []
-    average_rewards = []
-    max_average_reward = 0
-    max_reward = 0
-    for episode in range(10):
-        state = env.reset()
-        rewards = 0
-        state = np.reshape(state,[1,4])
-        while True:
-            env.render()
-            action = np.argmax(agent.model.predict(state)[0])
-            next_state, reward, done, _= env.step(action)
-            rewards += reward
-            next_state = np.reshape(next_state,[1,4])
-            state = next_state
-            if done or rewards >= step_limit:
-                episode_rewards.append(rewards)
-                average_reward = tf.reduce_mean(episode_rewards).numpy()
-                average_rewards.append(average_reward)
-                max_reward = max(max_reward,rewards)
-                #max_average_reward = max(max_average_reward,average_reward)
-                print(template.format(episode,rewards,max_reward,average_reward,"Not used"))
-                break
-    agent.draw(episode,episode_rewards,average_rewards,"./dddqn_per_playing_cartpole.png")
