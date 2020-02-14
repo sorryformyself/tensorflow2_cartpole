@@ -27,10 +27,15 @@ self.fixed_q_value_steps # update period of target network weights.
 
 ## dependencies
 
-#### tensorflow==2.1.0
-#### gym
-#### numpy
-#### matplotlib
+**tensorflow==2.1.0**
+
+**gym**
+
+**numpy**
+
+**matplotlib**
 
 ## The result
+
+![image](https://github.com/sorryformyself/tensorflow2_cartpole_PER/blob/master/result.png)
 
