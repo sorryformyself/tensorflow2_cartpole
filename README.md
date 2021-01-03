@@ -3,9 +3,9 @@ An tensorflow2 implementation of Prioritized Experience Replay, Dueling DQN, and
 
 Solved in episode 140, in gym environment "Cartpole-v1" with 200 limit.
 ## Update in 2021/1/3
-rewrite the code, so this could be solved in 25 seconds with cpu
-The code is in nsteplearning_cpprb,py
-the newest score are in **nsteplearning_cpprb.py**
+Rewriting the code, so cartpole could be solved in 25 seconds with cpu.
+
+The code is in **nsteplearning_cpprb,py**
 
 Episode 100	Average Score: 130.43	epsilon:0.01	per_beta: 0.40	step: 13043
 
@@ -14,6 +14,10 @@ Running for 13043 steps with 0 hours 0 minutes 14 seconds
 Episode 157	Average Score: 195.04	epsilon:0.01	per_beta: 0.40	step: 24139
 
 problem solved in episode 157 with 0 hours 0 minutes 25 seconds
+
+### Newest score curve:
+
+![image](https://github.com/sorryformyself/tensorflow2_cartpole_PER/blob/master/cartpole_nstep.png)
 
 ## The training scores are:
 
