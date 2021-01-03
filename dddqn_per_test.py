@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 tf.get_logger().setLevel('ERROR')
 #tf.logging.set_verbosity(tf.logging.ERROR)
 start_time = time.time()
-#solved in 381 episode
+#solved in 695
 episodes = 1500
 episode_rewards=[]
 average_rewards = []
@@ -23,9 +23,9 @@ max_reward = 0
 max_average_reward = 0
 step_limit = 200
 memory_size = 100000
-#env = gym.make('CartPole-v1')
 env = gym.make('CartPole-v1')
-env.seed(777)
+env = env.unwrapped
+env.seed(21)
 state_size = env.observation_space.shape[0]
 action_size = env.action_space.n
 template = 'episode: {}, rewards: {:.2f}, max reward: {}, mean_rewards: {}, epsilon: {}'
@@ -89,12 +89,12 @@ class SumTree:
 class DQNAgent:
     def __init__(self):
         #other hyperparameters
-        self.save_graph = True
+        self.save_graph = False
         self.isTraining = True
         self.keepTraining = False
         self.play = False
         self.render = False
-        self.save_model = True
+        self.save_model = False
         self.load_model = False
         self.random = False
         self.dueling = True
@@ -102,7 +102,7 @@ class DQNAgent:
         self.initial_epsilon = 1.0
         self.epsilon = self.initial_epsilon
         self.min_epsilon = 0.01
-        self.linear_annealed = (self.initial_epsilon - self.min_epsilon) / 2000
+        self.linear_annealed = (self.initial_epsilon - self.min_epsilon) / 20000
         self.decay_rate = 0.995
 
         #check the hyperparameters
@@ -120,8 +120,9 @@ class DQNAgent:
             self.load_model = True
         #fixed q value - two networks
         self.learning_rate = 0.0001
-        self.fixed_q_value_steps = 100
+        self.fixed_q_value_steps = 1000
         self.target_network_counter = 0
+        self.update_every = 4
 
         #experience replay used SumTree
         #combine agent and PER
@@ -132,11 +133,12 @@ class DQNAgent:
         self.PER_e = 0.01 #epsilon -> pi = |delta| + epsilon transitions which have zero error also have chance to be selected
         self.PER_a = 0.6 #P(i) = p(i) ** a / total_priority ** a
         self.PER_b = 0.4
-        self.PER_b_increment = 0.002
+        #self.PER_b_increment = 0.001
+        self.PER_b_increment = 0.00025
         self.absolute_error_upper = 1. #clipped error
         self.experience_number = 0
         #initially, p1=1 total_priority=1,so P(1)=1,w1=batchsize**beta
-
+        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
         if self.load_model:
             self.model = keras.models.load_model('cartpole_dddqn_per_model.h5')
             self.target_model = keras.models.load_model('cartpole_dddqn_per_model.h5')
@@ -148,7 +150,7 @@ class DQNAgent:
     def sample(self, n):
         mini_batch = []
         batch_index = np.empty((n,), dtype=int)
-        batch_ISWeights = np.empty((n,), dtype=float)
+        batch_ISWeights = np.empty((n,1))
         priority_segment = self.experience_replay.total_priority / n
         if self.PER_b < 1:
             self.PER_b += self.PER_b_increment
@@ -164,7 +166,7 @@ class DQNAgent:
             index, priority, data = self.experience_replay.get_leaf(value)
             sampling_probability = priority / self.experience_replay.total_priority
             #batch_ISWeights[i] = np.power(sampling_probability*memory_size,-self.PER_b) / max_weight
-            batch_ISWeights[i] = np.power(sampling_probability/min_priority_probability,-self.PER_b)
+            batch_ISWeights[i][0] = np.power(sampling_probability/min_priority_probability,-self.PER_b)
             batch_index[i] = index
             mini_batch.append(data)
         return batch_index, mini_batch, batch_ISWeights
@@ -188,8 +190,8 @@ class DQNAgent:
     #DDDQN dueling double DQN, the network structure should change
     def create_model(self):
         inputs = tf.keras.Input(shape=(state_size,))
-        fc1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
-        fc2 = tf.keras.layers.Dense(128, activation='relu')(fc1)
+        fc1 = tf.keras.layers.Dense(20, activation='relu')(inputs)
+        fc2 = tf.keras.layers.Dense(20, activation='relu')(fc1)
         advantage_output = tf.keras.layers.Dense(action_size, activation='linear')(fc2)
         if self.dueling:
             value_out = tf.keras.layers.Dense(1, activation='linear')(fc2)
@@ -199,9 +201,7 @@ class DQNAgent:
             model = tf.keras.Model(inputs, outputs)
         else:
             model = tf.keras.Model(inputs, advantage_output)
-        model.compile(optimizer=tf.keras.optimizers.Adam(self.learning_rate),
-                      loss='mse',
-                      metrics=['accuracy'])
+
         return model
 
     def training(self):
@@ -211,19 +211,20 @@ class DQNAgent:
             #batches = random.sample(self.experience_replay, self.batch_size)
             batch_index, batches, batch_ISWeights = self.sample(self.batch_size)
             absolute_errors = []
-            buffer_state = [data[0] for data in batches]
-            buffer_action = [data[1] for data in batches]
-            buffer_reward = [data[2] for data in batches]
-            buffer_next_state = [data[3] for data in batches]
-            buffer_done = [data[4] for data in batches]
+            buffer_state = np.vstack([data[0] for data in batches])
+            buffer_action = np.vstack([data[1] for data in batches])
+            buffer_reward = np.vstack([data[2] for data in batches])
+            buffer_next_state = np.vstack([data[3] for data in batches])
+            buffer_done = np.vstack([data[4] for data in batches])
 
-            buffer_state = np.reshape(buffer_state,(self.batch_size,state_size))
-            buffer_next_state = np.reshape(buffer_next_state,(self.batch_size,state_size))
-            y = self.model.predict(buffer_state)
+            y = self.get_prediction(self.model, buffer_state)
+
             #DDQN double DQN: choose action first in current network,
             #no axis=1 will only have one value
-            max_action_next = np.argmax(self.model.predict(buffer_next_state),axis=1)
-            target_y = self.target_model.predict(buffer_next_state)
+            max_action_next = np.argmax(self.get_prediction(self.model, buffer_next_state),axis=1)
+            y = np.array(y)
+            target_y = self.get_prediction(self.target_model, buffer_next_state)
+
             for i in range(0,self.batch_size):
                 done = buffer_done[i]
                 if done:
@@ -235,12 +236,30 @@ class DQNAgent:
                 #only one output, which has the shape(1,2)
                 #prediction value - actual value
                 # the value between implemented action and maximum action
-                absolute_errors.append(tf.abs(y[i, buffer_action[i]] - y_reward))
+                absolute_errors.append(np.abs(y[i, buffer_action[i]] - y_reward))
+
                 y[i, buffer_action[i]] = y_reward
-            history = self.model.fit(buffer_state, y, batch_size=self.batch_size, epochs=64, verbose=0, sample_weight=batch_ISWeights)
+
+            self.train_step(buffer_state, y, batch_ISWeights.astype(np.float32))
+
 
             self.batch_update(batch_index, absolute_errors)
-            return history
+
+
+    @tf.function
+    def get_prediction(self, model, states):
+        with tf.GradientTape() as tape:
+            target_y = model(states, training=False)
+        return target_y
+
+    @tf.function
+    def train_step(self, states, y, batch_ISWeights):
+        with tf.GradientTape() as tape:
+            preds = self.model(states, training=True)
+            loss =  tf.reduce_mean(batch_ISWeights * tf.square(preds - y))
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
     def acting(self,state):
         if self.render:
             env.render()
@@ -250,11 +269,13 @@ class DQNAgent:
             #print('weights updated')
         random_number = np.random.sample()
         if random_number > self.epsilon:
-            action = np.argmax(self.model.predict(state)[0])
+            action = np.argmax(self.get_prediction(self.model, state)[0])
         else:
             action = np.random.randint(action_size)
         if self.epsilon > self.min_epsilon:
             self.epsilon -= self.linear_annealed
+        if self.target_network_counter % self.update_every == 0:
+            self.training()
         return action
 
     #Since heavily importing into the global namespace may result in unexpected behavior,
@@ -282,9 +303,9 @@ class DQNAgent:
         plt.savefig(location)
         plt.close()
 
-    def redraw(self, rewards, location):
-        plt.plot(rewards)
-        plt.title('score with episodes')
+    def redraw(self, episode, last_average_rewards, location):
+        plt.plot(np.linspace(0,episode,len(last_average_rewards),endpoint=False), np.asarray(last_average_rewards))
+        plt.title('last_average_score with episodes')
         plt.xlabel('Episodes')
         plt.ylabel('Last Score')
         plt.ylim(bottom=0)
@@ -292,10 +313,9 @@ class DQNAgent:
         plt.close()
 
 agent = DQNAgent()
-
 if agent.isTraining:
-    scores_window = deque(maxlen=100)
     start = time.time()
+    scores_window = deque(maxlen=100)
     for episode in range(episodes):
         rewards = 0
         state = env.reset()
@@ -312,41 +332,27 @@ if agent.isTraining:
             if done or rewards >= step_limit:
                 episode_rewards.append(rewards)
                 scores_window.append(rewards)
+                average_reward = tf.reduce_mean(episode_rewards).numpy()
+                average_rewards.append(average_reward)
                 #max_average_reward = max(max_average_reward,average_reward)
                 max_reward = max(max_reward,rewards)
-                history = agent.training()
-
                 break
-        print('\rEpisode {}\tAverage Score: {:.2f}\tepsilon:{:.2f}\tbeta: {:.2f}'.format(episode, np.mean(scores_window), agent.epsilon, agent.PER_b), end="")
 
+        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(scores_window)), end="")
         if np.mean(scores_window)>195:
             print("\nproblem solved in {} episode in {}".format(episode, time.time()-start))
-            agent.model.save('cartpole_dddqn_per_model.h5')
-            agent.redraw(episode_rewards,"test.png")
             break
-        if episode % 100 == 0:
+        if (episode + 1) % 100==0:
             print("100 episodes {}".format(time.time()-start))
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(scores_window)))
-
-        # if (episode + 1) % 50==0:
-        #     print(template.format(episode,rewards,max_reward,average_reward,agent.epsilon))
-        #     plt.xlabel("epoches")
-        #     plt.ylabel("loss")
-        #     plt.ylim(bottom=0)
-        #     plt.plot(history.history['accuracy'])
-        #     plt.show()
-        #     if agent.save_model:
-        #         agent.model.save('cartpole_dddqn_per_model.h5')
-        #         print('model saved')
-        #     if agent.save_graph:
-        #         last_average_rewards.append(tf.reduce_mean(episode_rewards[-50:]))
-        #         agent.redraw(episode,last_average_rewards,"test.png")
-        #         agent.draw(episode,episode_rewards,average_rewards,"./dddqn_per_training_cartpole.png")
-        # if (episode + 1) % 100 == 0:
-        #     end_time = time.time()
-        #
-        #     print('running time: {:.2f} minutes'.format((end_time-start_time) / 60))
-        #     print('average score in last 100 episodes is: {}'.format(last_average_rewards[-1]))
+            #print(template.format(episode,rewards,max_reward,average_reward,agent.epsilon))
+            if agent.save_model:
+                agent.model.save('cartpole_dddqn_per_model.h5')
+                print('model saved')
+            if agent.save_graph:
+                last_average_rewards.append(tf.reduce_mean(episode_rewards[-50:]))
+                agent.redraw(episode,last_average_rewards,"test.png")
+                agent.draw(episode,episode_rewards,average_rewards,"./dddqn_per_training_cartpole.png")
     env.close()
 
 if agent.random:
@@ -384,7 +390,7 @@ if agent.play:
         state = np.reshape(state,[1,4])
         while True:
             env.render()
-            action = np.argmax(agent.model.predict(state)[0])
+            action = np.argmax(agent.get_prediction(agent.model, state)[0])
             next_state, reward, done, _= env.step(action)
             rewards += reward
             next_state = np.reshape(next_state,[1,4])
