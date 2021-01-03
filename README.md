@@ -2,8 +2,23 @@
 An tensorflow2 implementation of Prioritized Experience Replay, Dueling DQN, and double DQN.
 
 Solved in episode 140, in gym environment "Cartpole-v1" with 200 limit.
+## Update in 2020/1/3
+rewrite the code, so this could be solved in 25 seconds with cpu
+The code is in nsteplearning_cpprb,py
+the newest score are in *nsteplearning_cpprb.py*
+
+Episode 100	Average Score: 130.43	epsilon:0.01	per_beta: 0.40	step: 13043
+
+Running for 13043 steps with 0 hours 0 minutes 14 seconds
+
+Episode 157	Average Score: 195.04	epsilon:0.01	per_beta: 0.40	step: 24139
+
+problem solved in episode 157 with 0 hours 0 minutes 25 seconds
 
 ## The training scores are:
+
+
+
 ### Prioritized experience replay
 Episode 0       Average Score: 23.00    epsilon:0.99    beta: 0.40 
 
