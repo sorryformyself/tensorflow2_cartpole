@@ -6,8 +6,8 @@ This project is some implementations of DQN based on Tensorflow2
 "CartPole-v1" in openAI gym
 
 ### Implemented Algorithms
-- A2C (Advantage Actor Critic)
-- Apex (Distributed Prioritized Experience Replay)
+- a2c (Advantage Actor Critic)
+- apex (Distributed Prioritized Experience Replay)
 - c51 (Categorical DQN + Dueling DQN + Double DQN + Prioritized Experience Replay)
 - nstep (N-Step DQN + Dueling DQN + Double DQN + Prioritized Experience Replay)
 
