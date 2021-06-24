@@ -23,4 +23,4 @@ For example, The training process in **nstep_dqn/nstep.py**
 
 Problem solved in episode 129 with 0 hours 0 minutes 31 seconds
 
-![image](https://github.com/sorryformyself/tensorflow2_cartpole_PER/blob/master/nstep_dqn/cartpole_nstep.png)
+![image](https://github.com/sorryformyself/tensorflow2_cartpole/blob/master/nstep_dqn/cartpole_nstep.png)
