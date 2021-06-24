@@ -1,13 +1,18 @@
-到150分之后难以收敛，约296秒满分
-运行：Python a2c.py
+### Introduction
+Solved after 296s. Hard to converge
 
-训练环境：来自gym box2d游戏CartPole，对应gym中CartPole-v1
-算法：a2c
-框架：tensorflow
+### How to run
+Python a2c.py
 
-a2c文件：算法逻辑
+### Details
+Environment："CartPole-v1" in gym
+Algorithm：a2c
+Framework：tensorflow2
 
-训练数据如下:
+### Files
+apex.py：Algorithm
+
+### Training process
 episode: 100    Average Score: 30.78
 Running for 5.67 seconds
 episode: 200 	Average Score: 43.06
