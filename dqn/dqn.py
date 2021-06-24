@@ -7,7 +7,7 @@ from collections import deque
 
 episodes = 2000
 episode_rewards = []
-env = gym.make('CartPole-v0')
+env = gym.make('CartPole-v1')
 min_epsilon = 0.01
 epsilon = 1
 decay_rate = 0.995
@@ -22,7 +22,7 @@ fixed_q_value_steps = 100
 current_steps = 0
 template = 'episode: {}, rewards: {:.2f}, max reward: {}, mean_rewards: {:.2f}, epsilon: {:.2f}'
 
-from gym.envs.mspacman_array_state.Utils import Utils
+
 def create_model():
     model = keras.Sequential([
         keras.layers.Dense(128, activation='relu', input_shape=(4,)),
@@ -54,36 +54,13 @@ def training(model):
         buffer_done = np.asarray(buffer_done).squeeze()
 
         y = model(buffer_state).numpy()
-        y_reward = np.where(buffer_done, buffer_reward, buffer_reward + gamma * np.max(target_model(buffer_next_state).numpy()))
+        y_reward = np.where(buffer_done, buffer_reward,
+                            buffer_reward + gamma * np.max(target_model(buffer_next_state).numpy()))
 
         y[np.arange(batch_size), buffer_action] = y_reward
         model.fit(buffer_state, y, epochs=32, verbose=0)
 
 
-# total time: 0.244643 s
-# File: D:/OneDrive - bupt.edu.cn/tensorflow2-RL-demo/cartpole/dqn_edited.py
-# Function: training at line 41
-#
-# Line #      Hits         Time  Per Hit   % Time  Line Contents
-# ==============================================================
-#     41                                           @Utils.lp_wrapper()
-#     42                                           def training(model):
-#     43                                               # training
-#     44         1         25.0     25.0      0.0      if len(experience_replay) >= batch_size:
-#     45         1        730.0    730.0      0.0          batches = np.random.choice(len(experience_replay), batch_size)
-#     46                                                   #experiences = [experience_replay[i] for i in batches]
-#     47                                                   #buffer_state, buffer_action, buffer_reward, buffer_next_state, buffer_done = zip(*experiences)
-#     48                                                   #print(buffer_action)
-#     49        33       1092.0     33.1      0.0          for i in batches:
-#     50        32        672.0     21.0      0.0              buffer_state, buffer_action, buffer_reward, buffer_next_state, buffer_done = experience_replay[i]
-#     51        32        149.0      4.7      0.0              if buffer_done:
-#     52         4         25.0      6.2      0.0                  y_reward = buffer_reward
-#     53                                                       else:
-#     54        28     366879.0  13102.8     15.0                  y_reward = buffer_reward + gamma * np.max(target_model(buffer_next_state).numpy()[0])
-#     55                                                       # only one output, which has the shape(1,2)
-#     56        32     362134.0  11316.7     14.8              y = model(buffer_state).numpy()
-#     57        32       1282.0     40.1      0.1              y[0][buffer_action] = y_reward
-#     58        32    1713439.0  53545.0     70.0              model.train_on_batch(buffer_state, y)
 for episode in range(episodes):
 
     rewards = 0

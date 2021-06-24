@@ -1,19 +1,17 @@
 # a2c
-
 import tensorflow as tf
 import gym
 import numpy as np
-import tensorflow.keras as keras
-import matplotlib.pyplot as plt
-import os
-import random
 import time
 from collections import deque
 
+step_limit = 200
+
+
 class ProbabilityDistribution(tf.keras.Model):
-  def call(self, logits, **kwargs):
-    # Sample a random categorical action from the given logits.
-    return tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+    def call(self, logits, **kwargs):
+        # Sample a random categorical action from the given logits.
+        return tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
 
 
 class Actor(tf.keras.Model):
@@ -25,16 +23,19 @@ class Actor(tf.keras.Model):
         self.dist = ProbabilityDistribution()
         self.learning_rate = learning_rate
 
+    @tf.function
     def call(self, inputs, **kwargs):
         inputs = tf.cast(inputs, tf.float32)
         x = self.fc1(inputs)
         x = self.fc2(x)
         return self.logits(x)
 
+    @tf.function
     def get_action(self, state):
         logits = self(state)
         action = self.dist(logits)
-        return np.squeeze(action, axis=-1)
+        return tf.squeeze(action, axis=-1)
+
 
 class Critic(tf.keras.Model):
     def __init__(self, learning_rate=0.001):
@@ -44,13 +45,15 @@ class Critic(tf.keras.Model):
         self.value = tf.keras.layers.Dense(1)
         self.learning_rate = learning_rate
 
+    @tf.function
     def call(self, inputs, **kwargs):
         inputs = tf.cast(inputs, tf.float32)
         x = self.fc1(inputs)
         x = self.fc2(x)
         return self.value(x)
 
-class Agent(threading.Thread):
+
+class Agent:
     def __init__(self, state_size, action_size, learning_rate, gamma=0.99, value_c=0.5, entropy_c=1e-4, batch_size=64):
         self.gamma = gamma
         self.value_c = value_c
@@ -80,6 +83,7 @@ class Agent(threading.Thread):
         self.actor_train(self.states, acts_and_advs)
         self.critic_train(self.states, returns)
 
+    @tf.function
     def actor_train(self, states, acts_and_advs):
         with tf.GradientTape() as tape:
             logits = self.actor(states)
@@ -88,6 +92,7 @@ class Agent(threading.Thread):
         self.actor.optimizer.apply_gradients(zip(grads, self.actor.trainable_variables))
         return loss
 
+    @tf.function
     def critic_train(self, states, returns):
         with tf.GradientTape() as tape:
             values = self.critic(states)
@@ -96,22 +101,39 @@ class Agent(threading.Thread):
         self.critic.optimizer.apply_gradients(zip(grads, self.critic.trainable_variables))
         return loss
 
+    # gae
     def returns_advantages(self, rewards, dones, values, state_value):
         # `next_value` is the bootstrap value estimate of the future state (critic).
-        returns = np.append(np.zeros_like(rewards), np.squeeze(state_value,-1))
+        returns = np.append(np.zeros_like(rewards), np.squeeze(state_value, -1))
+        advantages = []
+        advantage = 0
+        next_value = 0
+        trace_decay = 1
         # Returns are calculated as discounted sum of future rewards.
         for t in reversed(range(rewards.shape[0])):
             returns[t] = rewards[t] + self.gamma * returns[t + 1] * (1 - dones[t])
-        #backview and forwardview????
+
+        for r, v, d in zip(reversed(rewards), reversed(values), reversed(dones)):
+            td_error = r + next_value * self.gamma * (1 - d) - v
+            advantage = td_error + advantage * self.gamma * trace_decay * (1 - d)
+            next_value = v
+            advantages.insert(0, advantage)
+        # backview and forwardview????
         returns = returns[:-1]
+        advantages = np.array(advantages)
+        # mean,variance = tf.nn.moments(advantages, axes=[0])
+        # advantages = (advantages-mean)/variance
+        # print(advantages.shape)
         # Advantages are equal to returns - baseline (value estimates in our case).
-        advantages = returns - values
+        # advantages = returns - values
         return returns, advantages
 
     # y true y pred
+    @tf.function
     def critic_loss(self, returns, values):
         return self.value_c * tf.keras.losses.MSE(returns, values)
 
+    @tf.function
     def actor_loss(self, actions_and_advantages, logits):
         # to equally 2 segments
         actions, advantages = tf.split(actions_and_advantages, 2, axis=-1)
@@ -124,66 +146,34 @@ class Agent(threading.Thread):
         return policy_loss - self.entropy_c * entropy_loss
 
 
-env = gym.make('CartPole-v0')
+env = gym.make('CartPole-v1')
 action_size = env.action_space.n
 state_size = 4
 learning_rate = 0.0001
-num_workers = 6
-agents = [Agent(state_size, action_size, learning_rate) for i in num_workers]
-
+agent = Agent(state_size, action_size, learning_rate)
 
 start = time.time()
-scores_window = deque(maxlen=100)
-scores_window.append(0.0)
 state = env.reset()
 episodes = 10000
 batch_size = 64
 scores_window = deque(maxlen=100)
 scores_window.append(0.0)
-for episode in range(1, episodes+1):
+current = 0
+for episode in range(1, episodes + 1):
     for i in range(batch_size):
-        for agent in agents:
-            action = agent.actor.get_action(state[None, :])
-            next_state, reward, done, _ = env.step(action)
-            agent.step(state, action, next_state, reward, done)
+        action = agent.actor.get_action(state[None, :])
+        next_state, reward, done, _ = env.step(action.numpy())
+        agent.step(state, action.numpy(), next_state, reward, done)
         scores_window[-1] += reward
         state = next_state
-        if done:
+        if done or scores_window[-1] >= step_limit:
             scores_window.append(0.0)
             state = env.reset()
+            current += 1
     agent.train(state)
     print('\repisode: {} \tAverage Score: {:.2f}'.format(episode, np.mean(scores_window)), end="")
     if episode % 100 == 0:
-        print("\nRunning for {:.2f} seconds".format(time.time()-start))
-    if np.mean(scores_window)>195:
-        print("\nproblem solved in {} episode with {:.2f} seconds".format(episode, time.time()-start))
-        # self.actor.save('cartpole_a2c_actor.h5')
-        # self.critic.save('cartpole_a2c_critic.h5')
-        # self.draw(episode_rewards,"a2c.png")
+        print("\nRunning for {:.2f} seconds".format(time.time() - start))
+    if np.mean(scores_window) > 195:
+        print("\nproblem solved in {} episode with {:.2f} seconds".format(episode, time.time() - start))
         break
-
-#
-# #step counter
-# T = 0
-# t = 1
-# while T<Tmax:
-#     #reset gradients for actor and Critic
-#     #synchronize thread's weights
-#     tstart = t
-#     state = env.reset()
-#     while true:
-#         # ProbabilityDistribution
-#         action = actor(state)
-#         n_s, r, d, _ = env.step(action)
-#         t += 1
-#         T += 1
-#         if terminal or t'-tstart = tmax:
-#             R = 0 if terminal else critic(state)
-#             #n step
-#             for i in range(t-1,tstart+1):
-#                 R = reward(i) + gamma*R
-#                 #update dtheta actor using advantage function
-#                 #update dthetacritic using MSE
-#
-#             update overall gradient using this dtheta
-#             break

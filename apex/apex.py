@@ -10,14 +10,13 @@ import tensorflow as tf
 import datetime
 import os
 from cpprb import PrioritizedReplayBuffer, ReplayBuffer
-from gym.envs.mspacman_array_state.Utils import Utils
 
 env = gym.make('CartPole-v1')
 state_size = env.observation_space.shape[0]
 action_size = env.action_space.n
 memory_size = 100000
 
-os.environ['CUDA_VISIBLE_DEVICES']='0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
 assert len(gpus) > 0
 tf.config.experimental.set_memory_growth(gpus[0], True)

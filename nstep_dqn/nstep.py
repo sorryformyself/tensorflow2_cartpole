@@ -7,7 +7,6 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from cpprb import PrioritizedReplayBuffer
-from gym.envs.mspacman_array_state.Utils import Utils
 
 tf.get_logger().setLevel('ERROR')
 episodes = 1000
@@ -21,11 +20,6 @@ action_size = env.action_space.n
 
 saveFileName = 'cartpole_nstep'
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
-
-# gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-# assert len(gpus) > 0
-# tf.config.experimental.set_memory_growth(gpus[0], True)
 
 
 # Episode 141	Average Score: 195.54	epsilon:0.01	per_beta: 1.00
@@ -108,124 +102,89 @@ class DQNAgent:
 
         for transition in reversed(list(n_step_buffer)[:-1]):
             r, n_s, d = transition[-3:]
-
             reward = r + gamma * reward * (1 - d)
             next_state, done = (n_s, d) if d else (next_state, done)
 
         return reward, next_state, done
 
-    # newly transitions have max_priority or 1 at first transition
     def store(self, experience):
-        if self.experience_number < memory_size:
-            self.experience_number += 1
-
-        # n_step
         self.n_step_buffer.append(experience)
         if len(self.n_step_buffer) == self.n_step:
             reward, next_state, done = self.get_n_step_info(self.n_step_buffer, self.gamma)
             state, action = self.n_step_buffer[0][:2]
             self.experience_replay.add(obs=state, act=action, rew=reward, next_obs=next_state, done=done)
 
-    def batch_update(self, tree_index, abs_errors):
-        abs_errors = tf.add(abs_errors, self.PER_e)
-        clipped_errors = np.minimum(abs_errors, self.absolute_error_upper)
-        priorities = np.power(clipped_errors, self.PER_a)
-        self.experience_replay.update_priorities(tree_index, priorities)
-
-    # DDDQN dueling double DQN, the network structure should change
     def create_model(self):
         inputs = tf.keras.Input(shape=(state_size,))
         fc1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
         fc2 = tf.keras.layers.Dense(128, activation='relu')(fc1)
-        fc3 = tf.keras.layers.Dense(128, activation='relu')(fc1)
         advantage_output = tf.keras.layers.Dense(action_size, activation='linear')(fc2)
-        if self.dueling:
-            value_out = tf.keras.layers.Dense(1, activation='linear')(fc3)
-            norm_advantage_output = keras.layers.Lambda(lambda x: x - tf.reduce_mean(x))(advantage_output)
-            # outputs = tf.keras.layers.Add()([value_out,advantage_output-tf.reduce_mean(advantage_output,axis=1,keepdims=True)])
-            outputs = tf.keras.layers.Add()([value_out, norm_advantage_output])
-            model = tf.keras.Model(inputs, outputs)
-        else:
-            model = tf.keras.Model(inputs, advantage_output)
+
+        value_out = tf.keras.layers.Dense(1, activation='linear')(fc2)
+        norm_advantage_output = tf.keras.layers.Lambda(lambda x: x - tf.reduce_mean(x))(advantage_output)
+        outputs = tf.keras.layers.Add()([value_out, norm_advantage_output])
+        model = tf.keras.Model(inputs, outputs)
+
         model.compile(optimizer=tf.keras.optimizers.Adam(self.learning_rate),
                       loss=tf.keras.losses.MeanSquaredError(),
                       metrics=['accuracy'])
         model.summary()
         return model
 
-    # @profile
-    # @Utils.timer()
-    def training(self):
-        if self.experience_number >= self.replay_start_size:
-            s = self.experience_replay.sample(self.batch_size, beta=self.PER_b)
-            # if self.PER_b < 1:
-            #     self.PER_b += self.PER_b_increment
-            buffer_state = s['obs']
-            buffer_action = np.squeeze(s['act']).astype(np.int)
-            buffer_reward = np.squeeze(s['rew'])
-            buffer_next_state = s['next_obs']
-            buffer_done = np.squeeze(s['done'])
-
-            # n_step learning: gamma is also truncated
-            n_gamma = self.gamma ** self.n_step
-
-            y = self.local_inference(buffer_state).numpy()
-            # DDQN double DQN: choose action first in current network,
-            # no axis=1 will only have one value
-            max_action_next = np.argmax(self.local_inference(buffer_next_state).numpy(), axis=1)
-            target_y = self.target_inference(buffer_next_state).numpy()
-            target_network_q_value = target_y[np.arange(self.batch_size), max_action_next]
-            # now the experience actually store n-step info
-            # such as state[0], action[0], n-step reward, next_state[2] and done[2]
-            q_values_req = np.where(buffer_done, buffer_reward,
-                                    buffer_reward + n_gamma * target_network_q_value).astype(np.float32)
-            absolute_errors = tf.abs(y[np.arange(self.batch_size), buffer_action] - q_values_req)
-            y[np.arange(self.batch_size), buffer_action] = q_values_req
-            history = self.model.fit(buffer_state, y, batch_size=self.batch_size, epochs=64, verbose=0,
-                                     sample_weight=s['weights'])
-            self.batch_update(s['indexes'], absolute_errors)
-            return history
-
-    # tf function train_batch 78.69s 128score
-    # train_batch
-    @tf.function
-    def local_inference(self, x):
-        return self.model(x)
+    def train(self):
+        if self.experience_replay.get_stored_size() > self.batch_size:
+            samples = self.experience_replay.sample(self.batch_size)
+            td_errors, loss = self._train_body(samples)
+            self.experience_replay.update_priorities(
+                samples["indexes"], td_errors.numpy() + 1e-6)
 
     @tf.function
-    def target_inference(self, x):
-        return self.target_model(x)
-
-    @tf.function
-    def train_batch(self, x, y, sample_weight):
+    def _train_body(self, samples):
         with tf.GradientTape() as tape:
-            predictions = self.model(x)
-            loss = self.model.loss(y, predictions, sample_weight)
+            td_errors = self._compute_td_error_body(samples["obs"], samples["act"], samples["rew"],
+                                                    samples["next_obs"], samples["done"])
+            loss = tf.reduce_mean(tf.square(td_errors))  # huber loss seems no use
         gradients = tape.gradient(loss, self.model.trainable_variables)
         self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        return td_errors, loss
 
     @tf.function
-    def soft_update(self, local_model, target_model, tau):
-        for target_param, local_param in zip(target_model.weights, local_model.weights):
-            target_param.assign(tau * local_param + (1.0 - tau) * target_param)
+    def _compute_td_error_body(self, states, actions, rewards, next_states, dones):
+        rewards = tf.cast(tf.squeeze(rewards), dtype=tf.float32)
+        dones = tf.cast(tf.squeeze(dones), dtype=tf.bool)
+        actions = tf.cast(actions, dtype=tf.int32)  # (batch_size, 1)
+        batch_size_range = tf.expand_dims(tf.range(self.batch_size), axis=1)  # (batch_size, 1)
 
-    # 220         1       5318.0   5318.0     98.1
-    def acting(self, state):
-        if self.render:
-            env.render()
+        # get current q value
+        current_q_indexes = tf.concat(values=(batch_size_range, actions), axis=1)  # (batch_size, 2)
+        current_q = tf.gather_nd(self.model(states), current_q_indexes)  # (batch_size, )
+
+        # get target q value using double dqn
+        max_next_q_indexes = tf.argmax(self.model(next_states), axis=1, output_type=tf.int32)  # (batch_size, )
+        indexes = tf.concat(values=(batch_size_range,
+                                    tf.expand_dims(max_next_q_indexes, axis=1)), axis=1)  # (batch_size, 2)
+        target_q = tf.gather_nd(self.target_model(next_states), indexes)  # (batch_size, )
+
+        target_q = tf.where(dones, rewards, rewards + self.gamma * target_q)  # (batch_size, )
+        # don't want change the weights of target network in backpropagation, so tf.stop_gradient()
+        # but seems no use
+        td_errors = tf.abs(current_q - tf.stop_gradient(target_q))
+        return td_errors
+
+    def select_action(self, state):
         self.target_network_counter += 1
         if self.target_network_counter % self.fixed_q_value_steps == 0:
             self.target_model.set_weights(self.model.get_weights())
-        # self.soft_update(self.model, self.target_model, 0.001)
-        # print('weights updated')
-        random_number = np.random.sample()
-        if random_number > self.epsilon:
-            action = np.argmax(self.local_inference(state).numpy()[0])
-        else:
-            action = np.random.randint(action_size)
-        if self.epsilon > self.min_epsilon:
-            self.epsilon -= self.linear_annealed
-        return action
+        self.epsilon = max(self.epsilon - self.linear_annealed, self.min_epsilon)
+        if np.random.sample() <= self.epsilon:
+            return np.random.randint(action_size)
+        return self._get_action_body(state).numpy()
+
+    @tf.function
+    def _get_action_body(self, state):
+        state = tf.expand_dims(state, axis=0)
+        qvalues = self.model(state)[0]
+        return tf.argmax(qvalues)
 
 
 agent = DQNAgent()
@@ -236,30 +195,34 @@ if agent.isTraining:
     for episode in range(1, episodes + 1):
         rewards = 0
         state = env.reset()
-        state = np.array([state])
         while True:
-            action = agent.acting(state)
+            action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
             rewards += reward
-            next_state = next_state[None, :]
             reward = -10 if done else reward
 
             agent.store((state, action, reward, next_state, done))
             state = next_state
-
+            agent.train()
             if done or rewards >= step_limit:
                 episode_rewards.append(rewards)
                 scores_window.append(rewards)
-                history = agent.training()
                 break
-        Utils.printBeta(episode, scores_window, beta=agent.PER_b, epsilon=agent.epsilon,
-                        steps=agent.target_network_counter)
+
+        print('\rEpisode {}\tAverage Score: {:.2f}'
+              '\tepsilon:{:.2f}\tper_beta: {:.2f}\tstep: {}'.format(episode, np.mean(scores_window), agent.epsilon,
+                                                                    agent.PER_b, agent.target_network_counter), end='')
+
         if np.mean(scores_window) > 195:
-            Utils.printSolvedTime(start, episode)
+            m, s = divmod(time.time() - start, 60)
+            h, m = divmod(m, 60)
+            print("\nproblem solved in episode %d with %d hours %d minutes %d seconds" % (episode, h, m, s))
             agent.model.save(saveFileName + '.h5')
-            Utils.saveRewards(saveFileName, episode_rewards)
-            Utils.saveThreePlots(saveFileName, episode_rewards)
+            # Utils.saveRewards(saveFileName, episode_rewards)
+            # Utils.saveThreePlots(saveFileName, episode_rewards)
             break
         if episode % 100 == 0:
-            Utils.printRunningTime(start, agent.target_network_counter)
+            m, s = divmod(time.time() - start, 60)
+            h, m = divmod(m, 60)
+            print("\nRunning for %d steps with %d hours %d minutes %d seconds" % (agent.target_network_counter, h, m, s))
     env.close()

@@ -2,11 +2,7 @@ import tensorflow as tf
 import gym
 import numpy as np
 import tensorflow.keras as keras
-import matplotlib.pyplot as plt
-import os
-import random
 import time
-import math
 from collections import deque
 
 tf.get_logger().setLevel('ERROR')
@@ -19,11 +15,8 @@ env.seed(777)
 state_size = env.observation_space.shape[0]
 action_size = env.action_space.n
 
-saveFileName = 'noisynet'
-# os.environ['CUDA_VISIBLE_DEVICES']='0'
-# gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-# assert len(gpus) > 0
-# tf.config.experimental.set_memory_growth(gpus[0], True)
+saveFileName = 'categorical'
+
 
 # leaves contain priorities for every experience.A data array containing the experiences points to the leaves.
 # priorities are determined due to their TD error.
@@ -77,144 +70,40 @@ class SumTree:
         return self.tree[0]  # Returns the root node
 
 
-# class NoisyLinear(tf.keras.layers.Layer):
-#     def __init__(self, out_features: int, in_features, std_init: float = 0.5):
-#         """Initialization."""
-#         super(NoisyLinear, self).__init__()
-#         self.out_features = out_features
-#         self.std_init = std_init
-#
-#         self.in_features = in_features
-#         self.weight_mu = self.add_weight(name='weight_mu', shape=[self.in_features, self.out_features], trainable=True)
-#         self.weight_sigma = self.add_weight(name='weight_sigma', shape=[self.in_features, self.out_features], trainable=True)
-#         self.weight_epsilon = self.add_weight(name='weight_epsilon', shape=[self.in_features, self.out_features])
-#
-#         self.bias_mu = self.add_weight(name='bias_mu', shape=[self.out_features,], trainable=True)
-#         self.bias_sigma = self.add_weight(name='bias_sigma', shape=[self.out_features,], trainable=True)
-#         self.bias_epsilon = self.add_weight(name='bias_epsilon', shape=[self.out_features,])
-#
-#         self.reset_parameters()
-#         self.reset_noise()
-#
-#     def reset_parameters(self):
-#         """Reset trainable network parameters (factorized gaussian noise)."""
-#
-#         self.weight_mu = tf.keras.backend.random_uniform(self.weight_mu.shape, minval=-mu_range, maxval=mu_range)
-#         self.weight_sigma = tf.fill(self.weight_sigma.shape, self.std_init / math.sqrt(self.in_features))
-#
-#         self.bias_mu = tf.keras.backend.random_uniform(self.bias_mu.shape, minval=-mu_range, maxval=mu_range)
-#         self.bias_sigma = tf.fill(self.bias_sigma.shape, self.std_init / math.sqrt(self.in_features))
-#
-#     def reset_noise(self):
-#         """Make new noise."""
-#         p = tf.random.normal([self.in_features,1])
-#         q = tf.random.normal([1,self.out_features])
-#         f_p = f(p)
-#         f_q = f(q)
-#         # outer product
-#         self.weight_epsilon = f_p * f_q
-#         self.bias_epsilon = tf.squeeze(f_q)
-#
-#     def call(self, input):
-#         """Forward method implementation.
-#
-#         We don't use separate statements on train / eval mode.
-#         It doesn't show remarkable difference of performance.
-#         """
-#         w = self.weight_mu + self.weight_sigma * self.weight_epsilon
-#         b = self.bias_mu + self.bias_sigma * self.bias_epsilon
-#
-#         return tf.matmul(input, w) + b
-#
-#     # @staticmethod
-#     # def scale_noise(size: int):
-#     #     """Set scale to make noise (factorized gaussian noise)."""
-#     #     x = tf.random.normal((size,), mean = 0, stddev = 1)
-#     #     return tf.multiply(tf.sign(x), tf.sqrt(tf.abs(x)))
-#     @staticmethod
-#     def f(x):
-#         return tf.multiply(tf.sign(x),tf.pow(tf.abs(x),0.5))
-class NoisyLinear(tf.keras.layers.Layer):
-    def __init__(self, out_features: int, in_features, std_init: float = 0.5):
-        """Initialization."""
-        super(NoisyLinear, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.std_init = std_init
-
-        mu_init = tf.random_uniform_initializer(minval=-1 * 1 / np.power(in_features, 0.5),
-                                                maxval=1 * 1 / np.power(in_features, 0.5))
-        sigma_init = tf.constant_initializer(std_init / np.power(in_features, 0.5))
-
-        self.weight_mu = self.add_weight(name='weight_mu', shape=[self.in_features, self.out_features], trainable=True,
-                                         initializer=mu_init)
-        self.weight_sigma = self.add_weight(name='weight_sigma', shape=[self.in_features, self.out_features],
-                                            trainable=True, initializer=sigma_init)
-        self.weight_epsilon = self.add_weight(name='weight_epsilon', shape=[self.in_features, self.out_features])
-
-        self.bias_mu = self.add_weight(name='bias_mu', shape=[self.out_features], trainable=True, initializer=mu_init)
-        self.bias_sigma = self.add_weight(name='bias_sigma', shape=[self.out_features], trainable=True,
-                                          initializer=sigma_init)
-        self.bias_epsilon = self.add_weight(name='bias_epsilon', shape=[self.out_features])
-
-        self.reset_noise()
-
-    def reset_noise(self):
-        """Make new noise."""
-        p = tf.random.normal([self.in_features, 1])
-        q = tf.random.normal([1, self.out_features])
-        f_p = self.f(p)
-        f_q = self.f(q)
-        # outer product
-        self.weight_epsilon = f_p * f_q
-        self.bias_epsilon = tf.squeeze(f_q)
-
-    @staticmethod
-    def f(x):
-        return tf.multiply(tf.sign(x), tf.pow(tf.abs(x), 0.5))
-
-    def call(self, input):
-        """Forward method implementation.
-
-        We don't use separate statements on train / eval mode.
-        It doesn't show remarkable difference of performance.
-        """
-        w = self.weight_mu + self.weight_sigma * self.weight_epsilon
-        b = self.bias_mu + self.bias_sigma * self.bias_epsilon
-
-        return tf.matmul(input, w) + b
-
-
 class Network(tf.keras.Model):
-    def __init__(self, learning_rate):
-        super(Network, self).__init__(name='')
+    def __init__(self, support, atom_size):
+        super(Network, self).__init__()
+
+        self.support = support
+        self.atom_size = atom_size
+
         self.fc1 = tf.keras.layers.Dense(128)
-        self.fc2 = NoisyLinear(128, in_features=128)
-        self.advantage_output = tf.keras.layers.Dense(action_size)
-        self.value_out = tf.keras.layers.Dense(1)
+        self.fc2 = tf.keras.layers.Dense(128)
+        self.advantage_output = tf.keras.layers.Dense(atom_size * action_size)
+        self.value_out = tf.keras.layers.Dense(1 * atom_size)
         self.norm_advantage_output = tf.keras.layers.Lambda(lambda x: x - tf.reduce_mean(x))
-
         self.build((None, state_size))
-        self.compile(optimizer=tf.keras.optimizers.Adam(learning_rate),
-                     loss='mse',
-                     metrics=['accuracy'])
 
+    @tf.function
     def call(self, input_tensor):
-        x = self.fc1(input_tensor)
+        dist = self.dist(input_tensor)
+        x = tf.reduce_sum(dist * self.support, axis=2)
+        return x
+
+    @tf.function
+    def dist(self, x):
+        x = self.fc1(x)
         x = tf.nn.relu(x)
         x = self.fc2(x)
         x = tf.nn.relu(x)
-
         y = self.advantage_output(x)
         y = self.norm_advantage_output(y)
+        y = tf.reshape(y, (-1, action_size, self.atom_size))
         z = self.value_out(x)
+        z = tf.reshape(z, (-1, 1, self.atom_size))
         x = y + z
-        return x
-
-    def reset_noise(self):
-        """Reset all noisy layers."""
-
-        self.fc2.reset_noise()
+        dist = tf.nn.softmax(x, axis=-1)
+        return dist
 
 
 class DQNAgent:
@@ -229,6 +118,12 @@ class DQNAgent:
         self.load_model = False
         self.random = False
         self.dueling = True
+        # epsilon greedy exploration
+        self.initial_epsilon = 1.0
+        self.epsilon = self.initial_epsilon
+        self.min_epsilon = 0.01
+        self.linear_annealed = (self.initial_epsilon - self.min_epsilon) / 2000
+        self.decay_rate = 0.995
 
         # check the hyperparameters
         if self.random == True:
@@ -241,6 +136,7 @@ class DQNAgent:
             self.isTraining = False
             self.keepTraining = False
         if self.keepTraining == True:
+            self.epsilon = self.min_epsilon
             self.load_model = True
         # fixed q value - two networks
         self.learning_rate = 0.0001
@@ -253,7 +149,7 @@ class DQNAgent:
 
         # experience replay used SumTree
         # combine agent and PER
-        self.batch_size = 32
+        self.batch_size = 64
         self.gamma = 0.9
         self.replay_start_size = 320
         self.experience_replay = SumTree(memory_size)
@@ -265,12 +161,22 @@ class DQNAgent:
         self.experience_number = 0
         # initially, p1=1 total_priority=1,so P(1)=1,w1=batchsize**beta
 
+        # categorical DQN
+        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+        self.v_min = 0.0
+        self.v_max = 200.0
+        self.atom_size = 51
+        self.support = np.linspace(
+            self.v_min, self.v_max, self.atom_size
+        )
+        self.delta_z = float(self.v_max - self.v_min) / (self.atom_size - 1)
         if self.load_model:
-            self.model = keras.models.load_model('cartpole_dddqn_per_model.h5')
-            self.target_model = keras.models.load_model('cartpole_dddqn_per_model.h5')
+            self.model = keras.models.load_model(saveFileName + '.h5')
+            self.target_model = keras.models.load_model(saveFileName + '.h5')
         else:
-            self.model = Network(self.learning_rate)
-            self.target_model = Network(self.learning_rate)
+            self.model = Network(self.support, self.atom_size)
+            self.target_model = Network(self.support, self.atom_size)
+            # self.target_model.predict(np.zeros((1,state_size)))
 
     # n-step learning, get the truncated n-step return
     def get_n_step_info(self, n_step_buffer, gamma):
@@ -334,43 +240,82 @@ class DQNAgent:
         for index, priority in zip(tree_index, priorities):
             self.experience_replay.update(index, priority)
 
+    # DDDQN dueling double DQN, the network structure should change
+    def create_model(self):
+        inputs = tf.keras.Input(shape=(state_size,))
+        fc1 = tf.keras.layers.Dense(128, activation='relu')(inputs)
+        fc2 = tf.keras.layers.Dense(128, activation='relu')(fc1)
+        advantage_output = tf.keras.layers.Dense(action_size, activation='linear')(fc2)
+        if self.dueling:
+            value_out = tf.keras.layers.Dense(1, activation='linear')(fc2)
+            norm_advantage_output = keras.layers.Lambda(lambda x: x - tf.reduce_mean(x))(advantage_output)
+            outputs = tf.keras.layers.Add()([value_out, norm_advantage_output])
+            model = tf.keras.Model(inputs, outputs)
+        else:
+            model = tf.keras.Model(inputs, advantage_output)
+        model.compile(optimizer=tf.keras.optimizers.Adam(self.learning_rate),
+                      loss='mse',
+                      metrics=['accuracy'])
+        return model
+
     def training(self):
         if self.experience_number >= self.replay_start_size:
-
             batch_index, batches, batch_ISWeights = self.sample(self.batch_size)
-            absolute_errors = []
-            buffer_state = [data[0] for data in batches]
-            buffer_action = [data[1] for data in batches]
-            buffer_reward = [data[2] for data in batches]
-            buffer_next_state = [data[3] for data in batches]
-            buffer_done = [data[4] for data in batches]
+            states = np.vstack([data[0] for data in batches])
+            actions = np.vstack([data[1] for data in batches])
+            rewards = np.vstack([data[2] for data in batches])
+            next_states = np.vstack([data[3] for data in batches])
+            dones = np.vstack([data[4] for data in batches])
 
-            buffer_state = np.reshape(buffer_state, (self.batch_size, state_size))
-            buffer_next_state = np.reshape(buffer_next_state, (self.batch_size, state_size))
-            y = self.model(buffer_state).numpy()
-            # DDQN double DQN: choose action first in current network,
-            # no axis=1 will only have one value
-            max_action_next = np.argmax(self.model(buffer_next_state).numpy(), axis=1)
-            target_y = self.target_model(buffer_next_state).numpy()
+            td_errors = self.train_body(states, actions, rewards, next_states, dones, batch_ISWeights)
+            self.batch_update(batch_index, td_errors)
 
-            # n_step learning: gamma is also truncated
-            # now the experience actually store n-step info
-            # such as state[0], action[0], n-step reward, next_state[2] and done[2]
-            n_gamma = self.gamma ** self.n_step
-            target_network_q_value = target_y[np.arange(self.batch_size), max_action_next]
-            # now the experience actually store n-step info
-            # such as state[0], action[0], n-step reward, next_state[2] and done[2]
-            q_values_req = np.where(buffer_done, buffer_reward, buffer_reward + n_gamma * target_network_q_value)
-            absolute_errors = tf.abs(y[np.arange(self.batch_size), buffer_action] - q_values_req)
-            y[np.arange(self.batch_size), buffer_action] = q_values_req
+    @tf.function
+    def train_body(self, states, actions, rewards, next_states, dones, weights):
+        weights = tf.cast(weights, dtype=tf.float32)
+        with tf.GradientTape() as tape:
+            elementwise_loss = self._compute_td_error_body(states, actions, rewards, next_states, dones)
+            absolute_errors = tf.abs(elementwise_loss)
+            loss = tf.reduce_mean(weights * elementwise_loss)
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        return absolute_errors
 
-            history = self.model.fit(buffer_state, y, batch_size=self.batch_size, epochs=64, verbose=0,
-                                     sample_weight=batch_ISWeights)
+    @tf.function
+    def _compute_td_error_body(self, states, actions, rewards, next_states, dones):
+        # DDQN double DQN: choose action first in current network,
+        # no axis=1 will only have one value
+        max_action_next = tf.argmax(self.model(next_states), axis=1)
+        batch_size_range = tf.expand_dims(tf.range(self.batch_size, dtype=tf.int64), axis=1)  # (batch_size, 1)
+        max_action_next = tf.expand_dims(max_action_next, axis=1)
+        next_indexes = tf.concat(values=(batch_size_range, max_action_next), axis=1)  # (batch_size, 2)
+        next_dist = self.target_model.dist(next_states)
+        next_dist = tf.gather_nd(next_dist, next_indexes)
 
-            self.batch_update(batch_index, absolute_errors)
-            self.model.reset_noise()
-            self.target_model.reset_noise()
-            return history
+        n_gamma = self.gamma ** self.n_step
+        t_z = tf.where(dones, rewards, rewards + n_gamma * self.support)  # (batch_size, )
+        t_z = tf.clip_by_value(t_z, self.v_min, self.v_max)
+        b = tf.cast((t_z - self.v_min) / self.delta_z, tf.float32)
+        l = tf.cast(tf.math.floor(b), tf.int32)
+        u = tf.cast(tf.math.ceil(b), tf.int32)
+
+        offset = tf.tile(tf.cast(tf.linspace(0., (self.batch_size - 1.) * self.atom_size, self.batch_size
+                                             ), tf.int32)[:, None], (1, self.atom_size))
+        proj_dist = tf.zeros(next_dist.shape, dtype=tf.float32)
+        loffset = tf.reshape((l + offset), (-1,))
+        uoffset = tf.reshape((u + offset), (-1,))
+        u_next = tf.reshape((next_dist * (tf.cast(u, tf.float32) - b)), (-1,))
+        l_next = tf.reshape((next_dist * (b - tf.cast(l, tf.float32))), (-1,))
+
+        proj_dist = tf.add(tf.reshape(proj_dist, (-1,)), tf.gather(u_next, loffset))
+        proj_dist = tf.add(tf.reshape(proj_dist, (-1,)), tf.gather(l_next, uoffset))
+        proj_dist = tf.reshape(proj_dist, (self.batch_size, self.atom_size))
+
+        dist = self.model.dist(states)
+        indexes = tf.concat(values=(batch_size_range, actions), axis=1)  # (batch_size, 2)
+        log_p = tf.math.log(tf.gather_nd(dist, indexes))
+        loss = tf.reduce_sum(-(proj_dist * log_p), axis=1)
+        return loss
 
     def acting(self, state):
         if self.render:
@@ -378,19 +323,18 @@ class DQNAgent:
         self.target_network_counter += 1
         if self.target_network_counter % self.fixed_q_value_steps == 0:
             self.target_model.set_weights(self.model.get_weights())
-            # print('weights updated')
-        random_number = np.random.sample()
-        action = np.argmax(self.model(state).numpy()[0])
+        if self.epsilon > self.min_epsilon:
+            self.epsilon -= self.linear_annealed
+        if np.random.sample() <= self.epsilon:
+            return np.random.randint(action_size)
+
+        action = self._get_action_body(state).numpy()
         return action
 
-    def draw(self, rewards, location):
-        plt.plot(rewards)
-        plt.title('score with episodes')
-        plt.xlabel('Episodes')
-        plt.ylabel('Last Score')
-        plt.ylim(bottom=0)
-        plt.savefig(location)
-        plt.close()
+    @tf.function
+    def _get_action_body(self, state):
+        qvalues = self.model(state)[0]
+        return tf.argmax(qvalues)
 
 
 agent = DQNAgent()
@@ -408,22 +352,22 @@ if agent.isTraining:
             rewards += reward
             next_state = next_state[None, :]
             reward = -10 if done else reward
-
             agent.store((state, action, reward, next_state, done))
             state = next_state
+            agent.training()
             if done or rewards >= step_limit:
                 episode_rewards.append(rewards)
                 scores_window.append(rewards)
-                history = agent.training()
 
                 break
-        print('\rEpisode {}\tAverage Score: {:.2f}\tper_beta: {:.2f}'.format(episode, np.mean(scores_window),
-                                                                             agent.PER_b), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f}\tepsilon:{:.2f}\tper_beta: {:.2f}'.format(episode,
+                                                                                             np.mean(scores_window),
+                                                                                             agent.epsilon,
+                                                                                             agent.PER_b), end="")
 
         if np.mean(scores_window) > 195:
             print("\nproblem solved in {} episode with {:.2f} seconds".format(episode, time.time() - start))
-            agent.model.save('cartpole_dddqn_per_model.h5')
-            agent.draw(episode_rewards, "test.png")
+            agent.model.save(saveFileName + '.h5')
             break
         if episode % 100 == 0:
             print("\nRunning for {:.2f} seconds".format(time.time() - start))
