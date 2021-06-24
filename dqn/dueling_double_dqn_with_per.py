@@ -8,7 +8,6 @@ import time
 from collections import deque
 
 tf.get_logger().setLevel('ERROR')
-# tf.logging.set_verbosity(tf.logging.ERROR)
 start_time = time.time()
 # solved in 381 episode
 episodes = 1500

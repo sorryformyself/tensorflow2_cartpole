@@ -192,7 +192,6 @@ if agent.isTraining:
                 episode_rewards.append(rewards)
                 average_reward = tf.reduce_mean(episode_rewards).numpy()
                 average_rewards.append(average_reward)
-                # max_average_reward = max(max_average_reward,average_reward)
                 max_reward = max(max_reward, rewards)
                 agent.training()
                 break

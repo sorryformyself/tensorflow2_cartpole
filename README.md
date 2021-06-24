@@ -18,7 +18,6 @@ Considered solved when the average return is greater than or equal to 195.0 over
 For example, The training process in **nstep_dqn/nstep.py**
 
 - Episode 100   Average Score: 146.78  	epsilon:0.01	per_beta: 0.40	step: 14678
-
 - Episode 129	Average Score: 195.61	epsilon:0.01	per_beta: 0.40	step: 20471
 
 Problem solved in episode 129 with 0 hours 0 minutes 31 seconds

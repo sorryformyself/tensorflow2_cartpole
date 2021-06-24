@@ -128,7 +128,6 @@ class Agent:
         # advantages = returns - values
         return returns, advantages
 
-    # y true y pred
     @tf.function
     def critic_loss(self, returns, values):
         return self.value_c * tf.keras.losses.MSE(returns, values)

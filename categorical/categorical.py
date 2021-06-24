@@ -212,7 +212,6 @@ class DQNAgent:
             value = np.random.uniform(a, b)
             index, priority, data = self.experience_replay.get_leaf(value)
             sampling_probability = priority / self.experience_replay.total_priority
-            # batch_ISWeights[i] = np.power(sampling_probability*memory_size,-self.PER_b) / max_weight
             batch_ISWeights[i] = np.power(sampling_probability / min_priority_probability, -self.PER_b)
             batch_index[i] = index
             mini_batch.append(data)

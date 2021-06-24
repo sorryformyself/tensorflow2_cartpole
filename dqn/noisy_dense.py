@@ -4,7 +4,6 @@
 # Fixed a bug by Kei Ohta
 
 import tensorflow as tf
-
 from tensorflow.keras import backend as K
 
 

@@ -84,7 +84,6 @@ class DQNAgent:
         if self.dueling:
             value_out = tf.keras.layers.Dense(1, activation='linear')(fc1)
             norm_advantage_output = keras.layers.Lambda(lambda x: x - tf.reduce_mean(x))(advantage_output)
-            # outputs = tf.keras.layers.Add()([value_out,advantage_output-tf.reduce_mean(advantage_output,axis=1,keepdims=True)])
             outputs = tf.keras.layers.Add()([value_out, norm_advantage_output])
             model = tf.keras.Model(inputs, outputs)
         else:

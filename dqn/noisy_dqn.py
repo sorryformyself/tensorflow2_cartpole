@@ -22,11 +22,6 @@ action_size = env.action_space.n
 saveFileName = 'noisynet'
 
 
-# os.environ['CUDA_VISIBLE_DEVICES']='0'
-# gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-# assert len(gpus) > 0
-# tf.config.experimental.set_memory_growth(gpus[0], True)
-
 # leaves contain priorities for every experience.A data array containing the experiences points to the leaves.
 # priorities are determined due to their TD error.
 # Updating the tree and sampling will be really efficient (O(log n)).

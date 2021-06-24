@@ -80,7 +80,6 @@ for episode in range(episodes):
         if epsilon > min_epsilon:
             epsilon = epsilon - epsilon_decay
         next_state, reward, done, _ = env.step(action)
-        # state, reward, done, _= env.step(np.random.randint(2))
         rewards += reward
         next_state = np.reshape(next_state, [1, 4])
         reward = -10 if done else reward

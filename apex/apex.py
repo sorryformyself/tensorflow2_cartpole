@@ -146,8 +146,6 @@ class Agent:
         absolute_errors = current_q[np.arange(batch_size), buffer_action] - target_q
         return absolute_errors
 
-    # tf function train_batch 78.69s 128score
-    # train_batch
     @tf.function
     def local_inference(self, x):
         return self.model(x)

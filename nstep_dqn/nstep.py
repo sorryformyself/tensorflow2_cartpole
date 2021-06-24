@@ -22,8 +22,6 @@ saveFileName = 'cartpole_nstep'
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 
-# Episode 141	Average Score: 195.54	epsilon:0.01	per_beta: 1.00
-# problem solved in 141 episode with 22.88 seconds
 class DQNAgent:
     def __init__(self):
         # other hyperparameters
